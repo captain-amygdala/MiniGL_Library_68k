@@ -76,7 +76,8 @@ void GLUPerspective(GLfloat fovy, GLfloat aspect, GLfloat znear, GLfloat zfar)
 {
    GLfloat xmin, xmax, ymin, ymax;
 
-   ymax = znear * tan(fovy * 0.008726646);
+   double rad = (double)fovy * 0.00872664625997164788;
+   ymax = znear * (float)(sin(rad) / cos(rad));
    ymin = -ymax;
    xmin = ymin * aspect;
    xmax = ymax * aspect;

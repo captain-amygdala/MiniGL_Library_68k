@@ -454,6 +454,7 @@ void v3d_context_free(V3DDevice* device, V3DContext* context)
      * v3d_backend_alloc_scratch_color below -- same "always safe to free,
      * handle may still be 0" reasoning as shader_code_mem just above. */
     v3d_mem_free(device, &context->scratch_color_mem);
+    v3d_mem_free(device, &context->mock_fb_mem);
 }
 
 int v3d_backend_alloc_scratch_color(V3DDevice* device, V3DContext* context)

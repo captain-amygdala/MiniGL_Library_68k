@@ -1978,6 +1978,8 @@ void v3d_store_tiled_image(void *dst, v3d_u32 dst_stride,
                            v3d_u32 image_h,
                            const v3d_texture_box *box);
 
+int v3d_mock_is_active(void);
+
 #ifdef __cplusplus
 }
 #endif

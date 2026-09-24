@@ -30,7 +30,7 @@
 #include "sysinc.h"
 #include <stdio.h>
 #include <dos/dosextens.h>
-#include "../../backend/hw/v3d_debug.h"
+#include "v3d_debug.h"
 
 
 static char rcsid[] UNUSED = "$Id: init.c,v 1.4 2001/12/25 00:55:26 tfrieden Exp $";

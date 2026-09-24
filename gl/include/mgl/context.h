@@ -64,9 +64,9 @@
 #include "mgl/config.h"
 #include "mgl/vertexbuffer.h"
 
-#include "../../../backend/include/v3d_device.h"
-#include "../../../backend/include/v3d_context.h"
-#include "../../../backend/include/v3d_texture.h"
+#include "v3d_device.h"
+#include "v3d_context.h"
+#include "v3d_texture.h"
 
 #pragma amiga-align
 

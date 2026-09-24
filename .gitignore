@@ -1,0 +1,8 @@
+# Build outputs
+*.o
+*.a
+*.tmp*
+obj_lib_*
+
+# Dependencies
+depends/

@@ -90,10 +90,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../../backend/include/v3d_device.h"
-#include "../../backend/include/v3d_context.h"
-#include "../../backend/include/v3d_texture.h"
-#include "../../backend/hw/v3d_debug.h"
+#include "v3d_device.h"
+#include "v3d_context.h"
+#include "v3d_texture.h"
+#include "v3d_debug.h"
 
 static char rcsid[] = "$Id: texture.c,v 1.1.1.1 2000/04/07 19:44:51 tfrieden Exp $";
 

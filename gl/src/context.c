@@ -177,13 +177,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../../backend/include/v3d_device.h"
-#include "../../backend/include/v3d_context.h"
-#include "../../backend/include/v3d_commands.h"
-#include "../../backend/include/v3d_clbuf.h"
-#include "../../backend/hw/v3d_hw.h"
-#include "../../backend/hw/v3d_regs.h"
-#include "../../backend/hw/v3d_submit_timeout.h"
+#include "v3d_device.h"
+#include "v3d_context.h"
+#include "v3d_commands.h"
+#include "v3d_clbuf.h"
+#include "v3d_hw.h"
+#include "v3d_regs.h"
+#include "v3d_submit_timeout.h"
 /*
  * gl_FramePresent and MGLFlushPendingRender wait for the GPU only through
  * the bounded-timeout functions (v3d_wait_binning_timeout/
@@ -205,7 +205,7 @@
  * lock held across the flip shows nothing at all. So the lock is held for
  * the render only and released before ChangeScreenBuffer.
  */
-#include "../../backend/hw/v3d_debug.h"
+#include "v3d_debug.h"
 
 static char rcsid[] = "$Id: context.c,v 1.1.1.1 2000/04/07 19:44:51 hfrieden Exp $";
 
@@ -332,6 +332,18 @@ void GLScissor(GLcontext context, GLint x, GLint y, GLsizei width, GLsizei heigh
 
 static void vid_CloseDisplay(GLcontext context, GLboolean keep_backend)
 {
+	if (v3d_mock_is_active())
+	{
+		if (!keep_backend)
+		{
+			tex_FreeTextures(context);
+			v3d_context_free(&context->device, &context->backend);
+		}
+		context->v3dWindow = NULL;
+		context->v3dScreen = NULL;
+		return;
+	}
+
 	if (context->bitmapLock)
 	{
 		UnLockBitMap(context->bitmapLock);
@@ -427,6 +439,44 @@ static GLboolean vid_OpenDisplay(GLcontext context, int w, int h, GLboolean keep
 	    CloseWorkBench();
 
 	D(("vid_OpenDisplay: enter, w=%ld h=%ld newPixelDepth=%ld\n", (LONG)w, (LONG)h, (LONG)newPixelDepth));
+
+	if (v3d_mock_is_active())
+	{
+		if (!keep_backend)
+		{
+			if (v3d_mem_alloc(&context->device, &context->backend.mock_fb_mem, (ULONG)w * (ULONG)h * 4) < 0)
+			{
+				E(("vid_OpenDisplay: mock_fb_mem alloc failed\n"));
+				return GL_FALSE;
+			}
+		}
+		ret = keep_backend
+		    ? v3d_context_resize(&context->backend, &context->device, (v3d_u16)w, (v3d_u16)h)
+		    : v3d_context_init(&context->backend, &context->device, (v3d_u16)w, (v3d_u16)h);
+
+		if (ret != 0)
+		{
+			E(("vid_OpenDisplay: v3d_context_init/resize FAILED, ret=%ld\n", (LONG)ret));
+			return GL_FALSE;
+		}
+
+		context->vmembase = (ULONG)context->backend.mock_fb_mem.hostptr;
+		context->bprow = (ULONG)w * 4;
+		context->backend.framebuffer = (void*)context->vmembase;
+
+		context->bitmapLock = NULL;
+		context->v3dScreen = NULL;
+		context->v3dWindow = NULL;
+		context->v3dBitMap = NULL;
+		context->Buffers[0] = NULL;
+		context->Buffers[1] = NULL;
+		context->Buffers[2] = NULL;
+		context->NumBuffers = 0;
+		context->BufNr = 0;
+
+		D(("vid_OpenDisplay: mock display initialized (%ldx%ld at 0x%08lx)\n", (LONG)w, (LONG)h, context->vmembase));
+		return GL_TRUE;
+	}
 
 	/* No CYBRBIDTG_PixelFormat-style tag exists in this SDK, so there's no
 	 * way to ask BestCModeIDTags for a specific pixel/channel order --
@@ -1600,7 +1650,7 @@ static v3d_wait_result gl_FramePresent(GLcontext context)
 				LBMI_BASEADDRESS, (ULONG)&context->vmembase,
 				TAG_DONE);
 		}
-		else
+		else if (context->v3dScreen)
 		{
 			context->bitmapLock = LockBitMapTags(context->v3dScreen->RastPort.BitMap,
 				LBMI_BYTESPERROW, (ULONG)&context->bprow,
@@ -1609,20 +1659,30 @@ static v3d_wait_result gl_FramePresent(GLcontext context)
 		}
 		if (!context->bitmapLock)
 		{
-			/* A dropped frame beats a crash or a hang -- nothing has been
-			 * submitted to the GPU yet (binning is CPU-side only so far), so
-			 * just drop this frame's accumulated work and let the caller try
-			 * again next frame. */
-			D(("gl_FramePresent: LockBitMapTags failed\n"));
-			backend->frame_active = FALSE;
-			/* Same discard as the frame_corrupted drop above -- this return
-			 * also sits before the color LOAD step that would consume it, so
-			 * leaving the flag set would hand an earlier frame's
-			 * intermediate-pass output to a later, unrelated one. See that
-			 * site for the full reasoning. */
-			backend->has_scratch_color = FALSE;
-			g_mglv3d_frames_dropped++;
-			return v3d_wait_result_error_detected;
+			if (v3d_mock_is_active())
+			{
+				/* Mock headless display: render targets context->vmembase directly */
+				context->vmembase = (ULONG)context->backend.mock_fb_mem.hostptr;
+				context->bprow = (ULONG)backend->width * 4;
+				backend->framebuffer = (void*)context->vmembase;
+			}
+			else
+			{
+				/* A dropped frame beats a crash or a hang -- nothing has been
+				 * submitted to the GPU yet (binning is CPU-side only so far), so
+				 * just drop this frame's accumulated work and let the caller try
+				 * again next frame. */
+				D(("gl_FramePresent: LockBitMapTags failed\n"));
+				backend->frame_active = FALSE;
+				/* Same discard as the frame_corrupted drop above -- this return
+				 * also sits before the color LOAD step that would consume it, so
+				 * leaving the flag set would hand an earlier frame's
+				 * intermediate-pass output to a later, unrelated one. See that
+				 * site for the full reasoning. */
+				backend->has_scratch_color = FALSE;
+				g_mglv3d_frames_dropped++;
+				return v3d_wait_result_error_detected;
+			}
 		}
 	}
 
@@ -2483,6 +2543,9 @@ void MGLSwitchDisplay(GLcontext context)
 	wr = gl_FramePresent(context);
 	if (wr != v3d_wait_result_success)
 		D(("MGLSwitchDisplay: frame present failed, result=%ld\n", (LONG)wr));
+
+	if (v3d_mock_is_active())
+		return;
 
 	if (!context->v3dBitMap)
 	{

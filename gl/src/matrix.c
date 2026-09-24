@@ -1716,7 +1716,6 @@ void m_CombineMatrices(GLcontext context)
 
   m_Mult(CurrentP, CurrentMV->v, CurrentMV->flags, 			   &(context->CombinedMatrix));
   g_mglv3d_combined_serial++;
-
 }
 
 
@@ -2086,6 +2085,7 @@ x x x 0
 
    GLASSERT(context != NULL);
    if (context->CurrentPrimitive != GL_BASE) { GLFlagError(context, 1, GL_INVALID_OPERATION); return; }
+   if (angle == 0.0f) return;
    context->InvRotValid = GL_FALSE;
    context->CombinedValid = GL_FALSE;
 

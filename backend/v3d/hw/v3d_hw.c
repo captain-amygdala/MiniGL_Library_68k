@@ -675,3 +675,8 @@ void v3d_store_tiled_image(void* dst, v3d_u32 dst_stride, void* src, v3d_u32 src
 	v3d_move_tiled_image(dst, dst_stride, src, src_stride, tiling_format, componentsPerPixel,
 		                 image_h, box, FALSE);
 }
+
+int v3d_mock_is_active(void)
+{
+	return 0;
+}

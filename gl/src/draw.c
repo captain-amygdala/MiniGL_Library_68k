@@ -74,14 +74,14 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../../backend/include/v3d_device.h"
-#include "../../backend/include/v3d_context.h"
-#include "../../backend/include/v3d_commands.h"
-#include "../../backend/include/v3d_clbuf.h"
-#include "../../backend/include/v3d_shader_assembler.h"
-#include "../../backend/include/v3d_texture.h"
-#include "../../backend/hw/v3d_hw.h"
-#include "../../backend/hw/v3d_debug.h"
+#include "v3d_device.h"
+#include "v3d_context.h"
+#include "v3d_commands.h"
+#include "v3d_clbuf.h"
+#include "v3d_shader_assembler.h"
+#include "v3d_texture.h"
+#include "v3d_hw.h"
+#include "v3d_debug.h"
 #include <string.h>
 
 /* swap_float32_into (v3d_commands.c) inlined for this file. A draw writes about

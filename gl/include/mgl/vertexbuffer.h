@@ -39,7 +39,7 @@
 #ifndef __VERTEXBUFFER_H
 #define __VERTEXBUFFER_H
 
-#include "../../../backend/include/v3d_vertex.h"
+#include "v3d_vertex.h"
 
 struct MGLVertex_t {
 

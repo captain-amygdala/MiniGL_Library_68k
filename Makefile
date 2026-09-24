@@ -36,10 +36,18 @@ endif
 
 # The script's toolchain. A different GCC or binutils build is a different
 # compiler: byte identity holds for this one only.
+# Default to /opt/amiga if present, otherwise fall back to $(HOME)/amiga-gcc-install
+ifeq ($(wildcard /opt/amiga/bin/m68k-amigaos-gcc),)
 PREFIX ?= $(HOME)/amiga-gcc-install
+else
+PREFIX ?= /opt/amiga
+endif
 CC     := $(PREFIX)/bin/m68k-amigaos-gcc
 AR     := $(PREFIX)/bin/m68k-amigaos-ar
 export PATH := $(PREFIX)/bin:$(PATH)
+
+# Backend selection: v3d (Raspberry Pi 4 / VideoCore VI) or vc4 (Raspberry Pi 1/2/3/Zero / VideoCore IV)
+BACKEND ?= v3d
 
 # Flags exactly as build_lib_gcc_nolog.sh sets them. -fno-strict-aliasing is
 # REQUIRED (strict aliasing deletes v3d_commands.c's swivel-pattern writes);
@@ -47,24 +55,36 @@ export PATH := $(PREFIX)/bin:$(PATH)
 OPT       ?= -O2
 OPTCFLAGS := -fno-strict-aliasing -fno-builtin-cos -fno-builtin-sin -finline-functions -DMGLV3D_NO_LOGGING
 CPUFLAGS  := -mcpu=68020 -m68881 -mcrt=clib2
-INCFLAGS  := -Igl/include -Ibackend/include
 
-OBJDIR ?= obj_lib_gcc_nolog
-LIB    ?= libminiglv3d.a
+ifeq ($(BACKEND),v3d)
+HW_DIR   := backend/v3d/hw
+INCFLAGS := -Igl/include -Ibackend/v3d/include -Ibackend/v3d/hw -Ibackend/include -Ibackend/hw
+HW_SRC   := v3d_assembler v3d_clbuf v3d_commands v3d_context v3d_device v3d_frame v3d_hw \
+            v3d_mem_allocvec v3d_submit_timeout v3d_texture
+LIB      ?= libminiglv3d.a
+DBG_SRC  := v3d_debug
+else ifeq ($(BACKEND),vc4)
+HW_DIR   := backend/vc4/hw
+INCFLAGS := -Igl/include -Ibackend/vc4/include -Ibackend/vc4/hw -Ibackend/include -Ibackend/hw
+HW_SRC   := vc4_assembler vc4_clbuf vc4_commands vc4_context vc4_device vc4_frame vc4_hw \
+            vc4_mem_allocvec vc4_mock_hw vc4_submit_timeout vc4_texture
+LIB      ?= libminiglvc4.a
+DBG_SRC  := vc4_debug
+endif
+
+OBJDIR ?= obj_lib_gcc_nolog_$(BACKEND)
 
 GL_SRC   := aclip context draw fog glu hclip init matrix others texture \
             vertexarray vertexbuffer_min vertexelements viewport
-HW_SRC   := v3d_assembler v3d_clbuf v3d_commands v3d_context v3d_device v3d_frame v3d_hw \
-            v3d_mem_allocvec v3d_submit_timeout v3d_texture
 
 GL_OBJS   := $(GL_SRC:%=$(OBJDIR)/%.o)
 HW_OBJS   := $(HW_SRC:%=$(OBJDIR)/%.o)
-DBG_OBJ   := $(OBJDIR)/v3d_debug.o
+DBG_OBJ   := $(OBJDIR)/$(DBG_SRC).o
 
 # Member order is part of the archive's bytes: this is the script's order.
 OBJS := $(GL_OBJS) $(HW_OBJS) $(DBG_OBJ)
 
-HEADERS := $(wildcard gl/include/mgl/*.h gl/src/*.h backend/include/*.h backend/hw/*.h)
+HEADERS := $(wildcard gl/include/mgl/*.h gl/src/*.h backend/$(BACKEND)/include/*.h backend/$(BACKEND)/hw/*.h backend/include/*.h backend/hw/*.h)
 
 .PHONY: all clean
 all: $(LIB)
@@ -72,11 +92,11 @@ all: $(LIB)
 $(GL_OBJS): $(OBJDIR)/%.o: gl/src/%.c $(HEADERS) Makefile | $(OBJDIR)
 	$(CC) -std=c99 $(OPT) $(OPTCFLAGS) $(CPUFLAGS) $(INCFLAGS) -c $< -o $@
 
-$(HW_OBJS): $(OBJDIR)/%.o: backend/hw/%.c $(HEADERS) Makefile | $(OBJDIR)
+$(HW_OBJS): $(OBJDIR)/%.o: $(HW_DIR)/%.c $(HEADERS) Makefile | $(OBJDIR)
 	$(CC) -std=c99 $(OPT) $(OPTCFLAGS) $(CPUFLAGS) $(INCFLAGS) -c $< -o $@
 
-# v3d_debug.c alone gets -DDEBUG: its kprintf body must be real at link time.
-$(DBG_OBJ): backend/hw/v3d_debug.c $(HEADERS) Makefile | $(OBJDIR)
+# Debug object gets -DDEBUG: its kprintf body must be real at link time.
+$(DBG_OBJ): $(HW_DIR)/$(DBG_SRC).c $(HEADERS) Makefile | $(OBJDIR)
 	$(CC) -std=c99 $(OPT) $(OPTCFLAGS) $(CPUFLAGS) -DDEBUG $(INCFLAGS) -c $< -o $@
 
 # Built under a never-used name and renamed into place, as the script does:
@@ -90,5 +110,4 @@ $(OBJDIR):
 # Removes exactly what this Makefile builds, never the directory tree: OBJDIR
 # can be pointed at another tree's object directory.
 clean:
-	rm -f $(OBJS) $(LIB)
-	rmdir $(OBJDIR) 2>/dev/null || true
+	rm -rf $(OBJDIR) obj_lib_gcc_nolog_v3d obj_lib_gcc_nolog_vc4 obj_lib_gcc_nolog $(LIB) libminiglv3d.a libminiglvc4.a

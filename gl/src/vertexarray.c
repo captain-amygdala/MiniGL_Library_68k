@@ -69,7 +69,7 @@
  */
 
 #include "sysinc.h"
-#include "../../backend/hw/v3d_debug.h"
+#include "v3d_debug.h"
 
 static char rcsid[] = "$Id: vertexarray.c,v 1.1.1.1 2000/04/07 19:44:51 hfrieden Exp $";
 

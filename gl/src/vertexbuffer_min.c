@@ -54,7 +54,7 @@
  */
 
 #include "sysinc.h"
-#include "../../backend/hw/v3d_debug.h"
+#include "v3d_debug.h"
 
 extern void fog_Set(GLcontext context);
 extern void GLDrawElements(GLcontext context, GLenum mode, GLsizei count, GLenum type, const GLvoid *indices);

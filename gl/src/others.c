@@ -31,7 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../../backend/hw/v3d_hw.h"
+#include "v3d_hw.h"
 
 static char rcsid[] = "$Id: others.c,v 1.1.1.1 2000/04/07 19:44:51 hfrieden Exp $";
 
