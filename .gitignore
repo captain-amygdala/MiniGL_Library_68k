@@ -3,6 +3,7 @@
 *.a
 *.tmp*
 obj_lib_*
+demos/cube_window_demo
 
 # Dependencies
 depends/

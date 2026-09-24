@@ -49,11 +49,17 @@ export PATH := $(PREFIX)/bin:$(PATH)
 # Backend selection: v3d (Raspberry Pi 4 / VideoCore VI) or vc4 (Raspberry Pi 1/2/3/Zero / VideoCore IV)
 BACKEND ?= v3d
 
+DEBUG ?= 1
+
 # Flags exactly as build_lib_gcc_nolog.sh sets them. -fno-strict-aliasing is
 # REQUIRED (strict aliasing deletes v3d_commands.c's swivel-pattern writes);
 # -fno-builtin-cos/-sin stops GCC fusing cos+sin into a cexp() nothing provides.
 OPT       ?= -O2
+ifeq ($(DEBUG),1)
+OPTCFLAGS := -fno-strict-aliasing -fno-builtin-cos -fno-builtin-sin -finline-functions -DDEBUG
+else
 OPTCFLAGS := -fno-strict-aliasing -fno-builtin-cos -fno-builtin-sin -finline-functions -DMGLV3D_NO_LOGGING
+endif
 CPUFLAGS  := -mcpu=68020 -m68881 -mcrt=clib2
 
 ifeq ($(BACKEND),v3d)
@@ -86,8 +92,15 @@ OBJS := $(GL_OBJS) $(HW_OBJS) $(DBG_OBJ)
 
 HEADERS := $(wildcard gl/include/mgl/*.h gl/src/*.h backend/$(BACKEND)/include/*.h backend/$(BACKEND)/hw/*.h backend/include/*.h backend/hw/*.h)
 
-.PHONY: all clean
+DEMO_SRC := demos/cube_window_demo.c
+DEMO_BIN := demos/cube_window_demo
+
+.PHONY: all clean demo
 all: $(LIB)
+demo: $(DEMO_BIN)
+
+$(DEMO_BIN): $(DEMO_SRC) $(LIB)
+	$(CC) -std=c99 $(OPT) $(OPTCFLAGS) $(CPUFLAGS) -Igl/include -Ibackend/include $< -L. -lminigl$(BACKEND) -lm -o $@
 
 $(GL_OBJS): $(OBJDIR)/%.o: gl/src/%.c $(HEADERS) Makefile | $(OBJDIR)
 	$(CC) -std=c99 $(OPT) $(OPTCFLAGS) $(CPUFLAGS) $(INCFLAGS) -c $< -o $@
@@ -110,4 +123,4 @@ $(OBJDIR):
 # Removes exactly what this Makefile builds, never the directory tree: OBJDIR
 # can be pointed at another tree's object directory.
 clean:
-	rm -rf $(OBJDIR) obj_lib_gcc_nolog_v3d obj_lib_gcc_nolog_vc4 obj_lib_gcc_nolog $(LIB) libminiglv3d.a libminiglvc4.a
+	rm -rf $(OBJDIR) obj_lib_gcc_nolog_v3d obj_lib_gcc_nolog_vc4 obj_lib_gcc_nolog $(LIB) libminiglv3d.a libminiglvc4.a $(DEMO_BIN)

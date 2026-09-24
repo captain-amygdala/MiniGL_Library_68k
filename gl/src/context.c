@@ -3173,6 +3173,7 @@ void *MGLCreateContextFromBitMap(struct BitMap *bitmap)
 
 	w = (int)GetBitMapAttr(bitmap, BMA_WIDTH);
 	h = (int)GetBitMapAttr(bitmap, BMA_HEIGHT);
+	int d = (int)GetBitMapAttr(bitmap, BMA_DEPTH);
 
 	if (w <= 0 || h <= 0)
 	{
