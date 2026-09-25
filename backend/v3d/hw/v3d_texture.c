@@ -1019,3 +1019,27 @@ void v3d_texture_emit_state(V3DDevice* device, V3DContext* context, V3DTexture* 
     swivel16 = (UWORD*)ss;
     swivel16[3] = LE16(swivel16[3]);
 }
+
+void v3d_emit_tmu_uniform_pair(V3DDevice* device, V3DContext* context,
+                               v3d_mem* sm, v3d_static_buffer* sb,
+                               ULONG ts_addr, ULONG ss_addr)
+{
+    v3d_tmu_config_parameter_0* p0 = (v3d_tmu_config_parameter_0*)v3d_cl_claim_fast(
+        device, sm, sb, sizeof(v3d_tmu_config_parameter_0), &context->frame);
+    v3d_tmu_config_parameter_1* p1;
+    ULONG* swivel;
+
+    p0->return_words_of_texture_data = 3;
+    p0->texture_state_address_rshift_4 = ts_addr >> 4;
+    swivel = (ULONG*)p0;
+    swivel[0] = LE32(swivel[0]);
+
+    p1 = (v3d_tmu_config_parameter_1*)v3d_cl_claim_fast(
+        device, sm, sb, sizeof(v3d_tmu_config_parameter_1), &context->frame);
+    p1->per_pixel_mask_enable = FALSE;
+    p1->unnormalized_coordinates = FALSE;
+    p1->output_type_32_bit = FALSE;
+    p1->sampler_state_address_rshift_3 = ss_addr >> 3;
+    swivel = (ULONG*)p1;
+    swivel[0] = LE32(swivel[0]);
+}

@@ -56,7 +56,7 @@ int v3d_texture_alloc(V3DDevice* device, V3DTexture* tex, v3d_u16 width, v3d_u16
 
     v3d_u32 padded_w = V3D_ALIGN_UP(width, 16);
     v3d_u32 padded_h = V3D_ALIGN_UP(height, 16);
-    v3d_u32 size = padded_w * padded_h * 4 + 256;
+    v3d_u32 size = padded_w * padded_h * 4 + 4096;
 
     if (tex_pool_alloc(device, &tex->texture_mem, size) < 0)
         return -1;
@@ -73,7 +73,9 @@ int v3d_texture_alloc(V3DDevice* device, V3DTexture* tex, v3d_u16 width, v3d_u16
     tex->dirty = 1;
 
     tex->num_levels = 1;
-    tex->levels[0].offset = 0;
+    ULONG bus = tex->texture_mem.busaddr;
+    ULONG aligned_bus = V3D_ALIGN_UP(bus, 4096);
+    tex->levels[0].offset = aligned_bus - bus;
     tex->levels[0].stride = padded_w * 4;
     tex->levels[0].padded_w = (v3d_u16)padded_w;
     tex->levels[0].padded_h = (v3d_u16)padded_h;
@@ -208,9 +210,9 @@ int v3d_texture_rename(V3DDevice* device, V3DTexture* tex, int copy_old)
 
     if (copy_old)
     {
-        memcpy((char*)V3D_ALIGN_UP((v3d_uintptr)tex->texture_mem.hostptr, 256),
-               (const char*)V3D_ALIGN_UP((v3d_uintptr)old_mem.hostptr, 256),
-               (size_t)(size - 256));
+        memcpy((char*)tex->texture_mem.hostptr + tex->levels[0].offset,
+               (const char*)old_mem.hostptr + tex->levels[0].offset,
+               (size_t)(size - 4096));
     }
 
     v3d_texture_park_mem(device, &old_mem);
@@ -223,7 +225,7 @@ void v3d_texture_upload_rgba8_level(V3DDevice* device, V3DTexture* tex, v3d_u8 l
     if (!tex || !src || !tex->texture_mem.hostptr || level >= tex->num_levels)
         return;
 
-    char* dst = (char*)V3D_ALIGN_UP((v3d_uintptr)tex->texture_mem.hostptr, 256) + tex->levels[level].offset;
+    char* dst = (char*)tex->texture_mem.hostptr + tex->levels[level].offset;
     v3d_u32 w = tex->width >> level; if (!w) w = 1;
     v3d_u32 h = tex->height >> level; if (!h) h = 1;
     v3d_u32 dstStride = tex->levels[level].stride;
@@ -256,7 +258,7 @@ void v3d_texture_upload_rgba8_subimage(V3DDevice* device, V3DTexture* tex, v3d_u
     if (!tex || !src || !tex->texture_mem.hostptr || level >= tex->num_levels)
         return;
 
-    char* dst = (char*)V3D_ALIGN_UP((v3d_uintptr)tex->texture_mem.hostptr, 256) + tex->levels[level].offset;
+    char* dst = (char*)tex->texture_mem.hostptr + tex->levels[level].offset;
     v3d_u32 dstStride = tex->levels[level].stride;
 
     const char* s = (const char*)src;
@@ -364,50 +366,51 @@ void v3d_texture_convert_row(v3d_u32* dst, const v3d_u8* src, v3d_u32 count, v3d
 void v3d_texture_emit_state(V3DDevice* device, V3DContext* context, V3DTexture* tex,
                              ULONG* outTextureShaderStateAddress, ULONG* outTextureSamplerStateAddress)
 {
-    char* data = (char*)V3D_ALIGN_UP((v3d_uintptr)tex->texture_mem.hostptr, 256);
-    AlignBuffer(context, 16);
+    (void)device;
+    (void)context;
+    ULONG tex_bus_addr = tex->texture_mem.busaddr + tex->levels[0].offset;
 
-    v3d_texture_shader_state* ts = (v3d_texture_shader_state*)v3d_cl_claim_fast(
-        device, &context->state_mem[context->build_slot], &context->state_buf[context->build_slot],
-        sizeof(v3d_texture_shader_state), &context->frame);
-    *outTextureShaderStateAddress = (ULONG)ts;
-    memset(ts, 0, sizeof(*ts));
+    /* Parameter 0 (Broadcom VC4 AG100-R Table 15):
+     * 31:12 - Texture Base Pointer (multiples of 4KB)
+     * 11:10 - Cache Swizzle (0)
+     * 9     - Cube Map Mode (0)
+     * 8     - Flip Texture Y Axis (0)
+     * 7:4   - Texture Data Type: 16 (RGBA32R, raster format) -> lower 4 bits = 0
+     * 3:0   - Number of Mipmap Levels minus 1
+     */
+    ULONG p0 = (tex_bus_addr & 0xFFFFF000UL) | ((tex->num_levels > 0 ? (tex->num_levels - 1) : 0) & 0xF);
 
-    ts->texture_base_pointer_rshift_6 = ((ULONG)data + tex->levels[0].offset) >> 6;
-    ts->image_width_lo = tex->width & 0x3f;
-    ts->image_width_hi = tex->width >> 6;
-    ts->image_height = tex->height;
-    ts->base_level = 0;
-    ts->max_level = tex->max_level_uploaded;
-    ts->texture_type = 4; /* RGBA8888 */
+    /* Parameter 1 (Broadcom VC4 AG100-R Table 16):
+     * 31    - Type bit 4: 1 for raster format (type 16)
+     * 30:20 - Height (0 = 2048)
+     * 19    - ETC Flip (0)
+     * 18:8  - Width (0 = 2048)
+     * 7     - Mag Filter: 0 = Linear, 1 = Nearest
+     * 6:4   - Min Filter: 0 = Linear, 1 = Nearest
+     * 3:2   - Wrap T: 0 = Repeat, 1 = Clamp, 2 = Mirror, 3 = Border
+     * 1:0   - Wrap S: 0 = Repeat, 1 = Clamp, 2 = Mirror, 3 = Border
+     */
+    UBYTE magfilt = (tex->mag_filter == V3D_TEXFILTER_LINEAR) ? 0 : 1;
+    UBYTE minfilt = (tex->min_filter == V3D_TEXFILTER_LINEAR) ? 0 : 1;
+    UBYTE wrap_s = (tex->wrap_s == V3D_TEXWRAP_REPEAT) ? 0 : ((tex->wrap_s == V3D_TEXWRAP_CLAMP) ? 1 : 3);
+    UBYTE wrap_t = (tex->wrap_t == V3D_TEXWRAP_REPEAT) ? 0 : ((tex->wrap_t == V3D_TEXWRAP_CLAMP) ? 1 : 3);
+    ULONG width_field = (tex->width == 2048) ? 0 : (tex->width & 2047);
+    ULONG height_field = (tex->height == 2048) ? 0 : (tex->height & 2047);
 
-    ULONG* swivel = (ULONG*)ts;
-    swivel[0] = LE32(swivel[0]);
-    swivel[1] = LE32(swivel[1]);
-    swivel[2] = LE32(swivel[2]);
-    swivel[3] = LE32(swivel[3]);
-    swivel[4] = LE32(swivel[4]);
+    ULONG p1 = (1UL << 31) | (height_field << 20) | (width_field << 8) | (magfilt << 7) | (minfilt << 4) | (wrap_t << 2) | wrap_s;
 
-    AlignBuffer(context, 16);
-    v3d_sampler_state* ss = (v3d_sampler_state*)v3d_cl_claim_fast(
-        device, &context->state_mem[context->build_slot], &context->state_buf[context->build_slot],
-        sizeof(v3d_sampler_state), &context->frame);
-    *outTextureSamplerStateAddress = (ULONG)ss;
-    memset(ss, 0, sizeof(*ss));
+    *outTextureShaderStateAddress = p0;
+    *outTextureSamplerStateAddress = p1;
+}
 
-    UBYTE minFilt = (tex->min_filter == V3D_TEXFILTER_LINEAR || tex->min_filter == V3D_TEXFILTER_LINEAR_MIPMAP) ? 0 : 1;
-    UBYTE magFilt = (tex->mag_filter == V3D_TEXFILTER_LINEAR || tex->mag_filter == V3D_TEXFILTER_LINEAR_MIPMAP) ? 0 : 1;
-    ss->min_filter_nearest = minFilt;
-    ss->mag_filter_nearest = magFilt;
-    ss->mip_filter_nearest = tex->mip_filter_nearest ? 1 : 0;
-    ss->wrap_s = (tex->wrap_s == V3D_TEXWRAP_REPEAT) ? 0 : (tex->wrap_s == V3D_TEXWRAP_CLAMP ? 1 : 2);
-    ss->wrap_t = (tex->wrap_t == V3D_TEXWRAP_REPEAT) ? 0 : (tex->wrap_t == V3D_TEXWRAP_CLAMP ? 1 : 2);
-
-    UBYTE* swivel24 = (UBYTE*)ss;
-    UBYTE temp = swivel24[3];
-    swivel24[3] = swivel24[1];
-    swivel24[1] = temp;
-
-    UWORD* swivel16 = (UWORD*)ss;
-    swivel16[3] = LE16(swivel16[3]);
+void v3d_emit_tmu_uniform_pair(V3DDevice* device, V3DContext* context,
+                               v3d_mem* sm, v3d_static_buffer* sb,
+                               ULONG ts_addr, ULONG ss_addr)
+{
+    ULONG* p = (ULONG*)v3d_cl_claim_fast(device, sm, sb, 8, &context->frame);
+    if (p)
+    {
+        p[0] = LE32(ts_addr);
+        p[1] = LE32(ss_addr);
+    }
 }

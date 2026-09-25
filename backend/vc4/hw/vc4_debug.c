@@ -15,9 +15,10 @@ MGLV3D_LP1(APTR, __DRawPutChar, 516, UBYTE, d0)
 
 void DPutChProc(MGLV3D_REG(d0, UBYTE mychar), MGLV3D_REG(a3, APTR PutChData))
 {
-    struct ExecBase* SysBase = (struct ExecBase*)PutChData;
-    DRawPutChar(mychar);
-    return;
+    /* Emu68 synchronous serial debug: writing a byte to 0xdeadbeef
+     * triggers Emu68 kprintf("%c", value) at 20Mbit to the FTDI opto interface */
+    *(volatile UBYTE *)0xdeadbeef = mychar;
+    (void)PutChData;
 }
 
 void kprintf(STRPTR format, ...)

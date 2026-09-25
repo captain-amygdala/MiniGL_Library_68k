@@ -2267,18 +2267,7 @@ static inline GLboolean d_HasRealW(const MGLVertex* vb, const int* indices, int 
 
 extern ULONG g_mglv3d_combined_serial; /* matrix.c */
 
-/* Shape flags of a shader state record: with the two code offsets and the
- * shader code base, every input of d_BuildShaderRecord except the per-draw
- * addresses. */
-#define D_SR_COMBINED         0x001UL
-#define D_SR_SMOOTH_ALPHATEST 0x002UL
-#define D_SR_SMOOTH           0x004UL
-#define D_SR_MULTITEXTURED    0x008UL
-#define D_SR_TEXTURED         0x010UL
-#define D_SR_ALPHATEST        0x020UL
-#define D_SR_SMOOTH_POINT     0x040UL
-#define D_SR_MULTITEX_BLEND   0x080UL
-#define D_SR_NEEDS_REAL_W     0x100UL
+/* Shape flags of a shader state record: defined in v3d_commands.h */
 
 /* The template patch below relies on this layout: a 36-byte record whose
  * per-draw addresses are the whole words at 8, 16, 24 and 32, then 16-byte
@@ -2733,6 +2722,7 @@ static void gl_EmitPrimitiveV3DEx(GLcontext context, int* indices, int count, UB
 	float scale_p;
 	float scale_p_y;
 	ULONG staterecordAddress;
+	ULONG shape = 0;
 	v3d_gl_shader_state_record* shader;
 	ULONG* swivel;
 	int i;
@@ -3698,41 +3688,14 @@ static void gl_EmitPrimitiveV3DEx(GLcontext context, int* indices, int count, UB
 		}
 		else
 		{
-		v3d_tmu_config_parameter_0* p0 = (v3d_tmu_config_parameter_0*)v3d_cl_claim_fast(
-			&context->device, sm, sb, sizeof(v3d_tmu_config_parameter_0), &backend->frame);
-		v3d_tmu_config_parameter_1* p1;
+			v3d_emit_tmu_uniform_pair(&context->device, backend, sm, sb,
+			                          textureShaderStateAddress, textureSamplerStateAddress);
 
-		p0->return_words_of_texture_data = 3;
-		p0->texture_state_address_rshift_4 = textureShaderStateAddress >> 4;
-		swivel = (ULONG*)p0;
-		swivel[0] = LE32(swivel[0]);
-
-		p1 = (v3d_tmu_config_parameter_1*)v3d_cl_claim_fast(
-			&context->device, sm, sb, sizeof(v3d_tmu_config_parameter_1), &backend->frame);
-		/* per_pixel_mask_enable/unnormalized_coordinates/output_type_32_bit
-		 * MUST be assigned explicitly: v3d_cl_claim_grow's memory is not
-		 * zeroed per allocation (only a one-time pool memset at context
-		 * init), so an unassigned bit reads back whatever was previously in
-		 * that CL buffer region. If leftover content set
-		 * unnormalized_coordinates=1, every texture fetch would sample raw
-		 * pixel addresses instead of this driver's normalized 0-1 UV
-		 * convention -- black textures, or outright crashes from wildly
-		 * out-of-range TMU fetch addresses. Same uninitialized
-		 * packed-struct-bitfield class as the texture-state and
-		 * shader-state records, in a struct populated on EVERY
-		 * textured/multitextured draw call. */
-		p1->per_pixel_mask_enable = FALSE;
-		p1->unnormalized_coordinates = FALSE;
-		p1->output_type_32_bit = FALSE;
-		p1->sampler_state_address_rshift_3 = textureSamplerStateAddress >> 3;
-		swivel = (ULONG*)p1;
-		swivel[0] = LE32(swivel[0]);
-
-		/* Without growth the pair is the 8 bytes at unif_frag_address. */
-		if (pe != NULL && sb->capacity == unif_frag_pre_capacity)
-		{
-			pe->fragpair = unif_frag_address;
-		}
+			/* Without growth the pair is the 8 bytes at unif_frag_address. */
+			if (pe != NULL && sb->capacity == unif_frag_pre_capacity)
+			{
+				pe->fragpair = unif_frag_address;
+			}
 		}
 
 		D(("gl_EmitPrimitiveV3D: textured, texShaderState=%08lx texSamplerState=%08lx\n",
@@ -3744,25 +3707,8 @@ static void gl_EmitPrimitiveV3DEx(GLcontext context, int* indices, int count, UB
 		 * 1's 2 wrtmuc calls consume these next 2). */
 		if (multitextured)
 		{
-			v3d_tmu_config_parameter_0* p0b = (v3d_tmu_config_parameter_0*)v3d_cl_claim_fast(
-				&context->device, sm, sb, sizeof(v3d_tmu_config_parameter_0), &backend->frame);
-			v3d_tmu_config_parameter_1* p1b;
-
-			p0b->return_words_of_texture_data = 3;
-			p0b->texture_state_address_rshift_4 = textureShaderStateAddress2 >> 4;
-			swivel = (ULONG*)p0b;
-			swivel[0] = LE32(swivel[0]);
-
-			p1b = (v3d_tmu_config_parameter_1*)v3d_cl_claim_fast(
-				&context->device, sm, sb, sizeof(v3d_tmu_config_parameter_1), &backend->frame);
-			/* Same explicit-assignment rule as unit 0's p1 above -- see that
-			 * comment. */
-			p1b->per_pixel_mask_enable = FALSE;
-			p1b->unnormalized_coordinates = FALSE;
-			p1b->output_type_32_bit = FALSE;
-			p1b->sampler_state_address_rshift_3 = textureSamplerStateAddress2 >> 3;
-			swivel = (ULONG*)p1b;
-			swivel[0] = LE32(swivel[0]);
+			v3d_emit_tmu_uniform_pair(&context->device, backend, sm, sb,
+			                          textureShaderStateAddress2, textureSamplerStateAddress2);
 
 			D(("gl_EmitPrimitiveV3D: multitextured, texShaderState2=%08lx texSamplerState2=%08lx\n",
 			   (ULONG)textureShaderStateAddress2, (ULONG)textureSamplerStateAddress2));
@@ -4173,7 +4119,7 @@ static void gl_EmitPrimitiveV3DEx(GLcontext context, int* indices, int count, UB
 	 * records land directly after the record, where their own claims put
 	 * them. */
 	{
-		ULONG shape = (combined         ? D_SR_COMBINED         : 0) |
+		shape = (combined         ? D_SR_COMBINED         : 0) |
 		              (smooth_alphatest ? D_SR_SMOOTH_ALPHATEST : 0) |
 		              (smooth           ? D_SR_SMOOTH           : 0) |
 		              (multitextured    ? D_SR_MULTITEXTURED    : 0) |
@@ -4205,7 +4151,7 @@ static void gl_EmitPrimitiveV3DEx(GLcontext context, int* indices, int count, UB
 			s_srec.valid            = 1;
 		}
 
-		d_AlignBuffer(backend, 32);
+		sb->used = (sb->used + 31) & ~31;
 		shader = (v3d_gl_shader_state_record*)v3d_cl_claim_fast(&context->device, sm, sb, nwords * 4, &backend->frame);
 		staterecordAddress = (ULONG)shader;   /* from the claimed pointer; a grown block starts 64-aligned, so >>5 still holds */
 
@@ -4405,32 +4351,34 @@ static void gl_EmitPrimitiveV3DEx(GLcontext context, int* indices, int count, UB
 	if (multitextured)
 		bound_tex2->last_draw_frame = (v3d_u32)g_mglv3d_frame_number;
 
-	d_glShaderState(backend, staterecordAddress, (combined || smooth_alphatest) ? 3 : 2);
+	{
+		v3d_primitive_args prim_args;
+		prim_args.staterecordAddress = staterecordAddress;
+		prim_args.attr_count = (combined || smooth_alphatest) ? 3 : 2;
+		prim_args.idxbuf = (ix != NULL) ? (void*)idxbuf : NULL;
+		prim_args.idxbytes = idxbytes;
+		prim_args.nidx = (ix != NULL) ? ix->nidx : 0;
+		prim_args.primType = primType;
+		prim_args.count = count;
+		prim_args.chunk_size = chunk_size;
+		prim_args.matrix = &context->CombinedMatrix.v[0];
+		prim_args.vp_ax = context->ax;
+		prim_args.vp_ay = context->ay;
+		prim_args.vp_sx = context->sx;
+		prim_args.vp_sy = context->sy;
+		prim_args.vp_sz = context->sz;
+		prim_args.vp_az = context->az;
+		prim_args.posbuf = posbuf;
+		prim_args.pos_stride_floats = needs_real_w ? 4 : 3;
+		prim_args.texbuf = texbuf;
+		prim_args.texbuf2 = texbuf2;
+		prim_args.fshader_code_addr = backend->shader_code_mem.busaddr + frag_code_offset;
+		prim_args.unif_frag_addr = unif_frag_address;
+		prim_args.shape = shape;
+		prim_args.use_clip_space = use_clip_space ? TRUE : FALSE;
+		prim_args.flat_color = context->backend.fixed_color;
 
-	/*
-	 * chunk_size lets one shared attribute buffer and one shader state
-	 * record -- both built once above, for the WHOLE batch -- still emit
-	 * several independent VertexArrayPrims packets against it. That is what
-	 * GL_QUADS/GL_QUAD_STRIP need, where each 4-vertex TRIANGLEFAN is its own
-	 * independent quad rather than one bigger connected fan (see d_DrawQuads'
-	 * own header comment for why concatenating quads into one
-	 * VertexArrayPrims(TRIANGLEFAN, N, 0) call would be wrong, not merely
-	 * unbatched). Every other call site passes chunk_size == count, which is
-	 * a single call.
-	 */
-	if (ix != NULL)
-	{
-		/* Lock-aware draw, in MESA's order (v3dx_draw.c): INDEX_BUFFER_SETUP,
-		 * then INDEXED_PRIM_LIST with a byte offset into that buffer. */
-		d_IndexBufferSetup(backend, (ULONG)idxbuf, idxbytes);
-		d_IndexedPrimList(backend, primType, v3d_INDEX_TYPE_16_BIT, (ULONG)ix->nidx, FALSE, 0);
-	}
-	else
-	{
-		for (i = 0; i < count; i += chunk_size)
-		{
-			d_VertexArrayPrims(backend, primType, (ULONG)chunk_size, (ULONG)i);
-		}
+		v3d_emit_primitive(&context->device, backend, &prim_args);
 	}
 }
 

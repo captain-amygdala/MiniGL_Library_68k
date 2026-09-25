@@ -7,3 +7,7 @@ demos/cube_window_demo
 
 # Dependencies
 depends/
+
+# Scratch and test files
+scratch/
+test_*

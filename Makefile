@@ -47,7 +47,7 @@ AR     := $(PREFIX)/bin/m68k-amigaos-ar
 export PATH := $(PREFIX)/bin:$(PATH)
 
 # Backend selection: v3d (Raspberry Pi 4 / VideoCore VI) or vc4 (Raspberry Pi 1/2/3/Zero / VideoCore IV)
-BACKEND ?= v3d
+BACKEND ?= vc4
 
 DEBUG ?= 1
 
@@ -56,9 +56,9 @@ DEBUG ?= 1
 # -fno-builtin-cos/-sin stops GCC fusing cos+sin into a cexp() nothing provides.
 OPT       ?= -O2
 ifeq ($(DEBUG),1)
-OPTCFLAGS := -fno-strict-aliasing -fno-builtin-cos -fno-builtin-sin -finline-functions -DDEBUG
+OPTCFLAGS := -fno-strict-aliasing -fno-builtin-cos -fno-builtin-sin -finline-functions -DDEBUG -DMGLV3D_WINDOW_CACHE_PAIR=1
 else
-OPTCFLAGS := -fno-strict-aliasing -fno-builtin-cos -fno-builtin-sin -finline-functions -DMGLV3D_NO_LOGGING
+OPTCFLAGS := -fno-strict-aliasing -fno-builtin-cos -fno-builtin-sin -finline-functions -DMGLV3D_NO_LOGGING -DMGLV3D_WINDOW_CACHE_PAIR=1
 endif
 CPUFLAGS  := -mcpu=68020 -m68881 -mcrt=clib2
 

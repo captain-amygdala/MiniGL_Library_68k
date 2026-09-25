@@ -873,3 +873,23 @@ void SetInstanceid(V3DContext* context, ULONG instanceid)
 }
 
 //***************************************************************************
+
+void v3d_emit_primitive(V3DDevice* device, V3DContext* context, const v3d_primitive_args* args)
+{
+    (void)device;
+    glShaderState(context, args->staterecordAddress, args->attr_count);
+    if (args->idxbuf != NULL)
+    {
+        IndexBufferSetup(context, (ULONG)args->idxbuf, args->idxbytes);
+        IndexedPrimList(context, args->primType, v3d_INDEX_TYPE_16_BIT, (ULONG)args->nidx, FALSE, 0);
+    }
+    else
+    {
+        int i;
+        for (i = 0; i < args->count; i += args->chunk_size)
+        {
+            VertexArrayPrims(context, args->primType, (ULONG)args->chunk_size, (ULONG)i);
+        }
+    }
+}
+

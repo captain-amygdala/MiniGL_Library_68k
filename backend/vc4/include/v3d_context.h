@@ -124,6 +124,15 @@ struct V3DContext {
     v3d_mem shader_code_mem;
     v3d_u8  shaders_ready;
     v3d_mem mock_fb_mem;
+
+    v3d_u16 render_mode_width;
+    v3d_u16 render_mode_height;
+    v3d_u8  render_mode_flags9;
+    v3d_u8  render_mode_flags10;
+    v3d_u8  render_mode_cfg_pending;
+    v3d_u8  clear_colors_emitted;
+    v3d_u16 tile_alloc_stride;
+    v3d_u32 fb_stride;
 };
 
 int  v3d_context_init(V3DContext* context, V3DDevice* device, v3d_u16 width, v3d_u16 height);

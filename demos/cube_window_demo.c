@@ -22,7 +22,7 @@
 #define WIN_WIDTH   320
 #define WIN_HEIGHT  240
 #define TEX_SIZE    64
-#define SUBDIV      4    /* 4x4 quads per face for smooth Gouraud specular glints */
+#define SUBDIV      4    /* 4x4 quads per face */
 
 /* ESC key scan code on Amiga keyboard */
 #define RAWKEY_ESC  0x45
@@ -150,6 +150,7 @@ static void draw_light_marker(float r)
 static void draw_subdivided_face(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 normal,
                                 const float R[3][3], const Light lights[NUM_LIGHTS], Vec3 ambient)
 {
+    glBegin(GL_QUADS);
     for (int j = 0; j < SUBDIV; j++) {
         float v0 = (float)j / (float)SUBDIV;
         float v1 = (float)(j + 1) / (float)SUBDIV;
@@ -184,14 +185,13 @@ static void draw_subdivided_face(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 normal
             Vec3 col11 = compute_vertex_lighting(c11, normal, R, lights, ambient);
             Vec3 col01 = compute_vertex_lighting(c01, normal, R, lights, ambient);
 
-            glBegin(GL_QUADS);
             glColor3f(col00.x, col00.y, col00.z); glTexCoord2f(u0, v0); glVertex3f(c00.x, c00.y, c00.z);
             glColor3f(col10.x, col10.y, col10.z); glTexCoord2f(u1, v0); glVertex3f(c10.x, c10.y, c10.z);
             glColor3f(col11.x, col11.y, col11.z); glTexCoord2f(u1, v1); glVertex3f(c11.x, c11.y, c11.z);
             glColor3f(col01.x, col01.y, col01.z); glTexCoord2f(u0, v1); glVertex3f(c01.x, c01.y, c01.z);
-            glEnd();
         }
     }
+    glEnd();
 }
 
 /* Draw full subdivided cube with dynamic lighting */
@@ -280,21 +280,32 @@ static void init_cube_texture(void)
     }
 }
 
+/* Set minimum stack for AmigaOS C runtime (clib2 / libnix) */
+unsigned long __stack = 262144;
+unsigned long __stack_size = 262144;
+
+extern void kprintf(const char *format, ...);
+
 int main(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
+    unsigned long maxFrames = 0;
+    if (argc > 1) {
+        maxFrames = strtoul(argv[1], NULL, 0);
+    }
 
     printf("=========================================\n");
     printf("MiniGL VC4 Windowed Hardware Test\n");
     printf("Target: VideoCore IV (VC4) / Emu68 PiStorm\n");
     printf("=========================================\n");
+    kprintf("DEMO: Starting cube_window_demo (maxFrames=%lu)\n", maxFrames);
 
     /* 1. Initialize MiniGL subsystem */
     if (!MGLInit()) {
         fprintf(stderr, "Error: MGLInit failed!\n");
+        kprintf("DEMO: Error: MGLInit failed!\n");
         return 20;
     }
+    kprintf("DEMO: MGLInit succeeded\n");
 
     /* 2. Open an Intuition window on the default / Workbench screen */
     struct TagItem winTags[] = {
@@ -325,12 +336,14 @@ int main(int argc, char **argv)
     GLcontext ctx = mglCreateContextFromWindow(win);
     if (!ctx) {
         fprintf(stderr, "Error: mglCreateContextFromWindow failed!\n");
+        kprintf("DEMO: Error: mglCreateContextFromWindow failed!\n");
         CloseWindow(win);
         MGLTerm();
         return 20;
     }
 
     printf("MiniGL context created successfully!\n");
+    kprintf("DEMO: MiniGL context created successfully (ctx=%08lx)!\n", (ULONG)ctx);
 
     /* 4. Setup OpenGL / MiniGL viewport & state */
     glViewport(0, 0, WIN_WIDTH, WIN_HEIGHT);
@@ -345,6 +358,8 @@ int main(int argc, char **argv)
     /* Render states */
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
     glShadeModel(GL_SMOOTH);
     glClearColor(0.08f, 0.08f, 0.12f, 1.0f);
     glClearDepth(1.0);
@@ -476,19 +491,43 @@ int main(int argc, char **argv)
         animTime += 1.0f;
         frameCount++;
 
+        if (frameCount == 1 || (frameCount % 10) == 0) {
+            kprintf("DEMO: frame %lu rendered\n", frameCount);
+        }
+
         if ((frameCount % 60) == 0) {
             printf("Rendered %lu frames...\n", frameCount);
+        }
+
+        if (maxFrames > 0 && frameCount >= maxFrames) {
+            kprintf("DEMO: reached maxFrames (%lu), exiting loop\n", maxFrames);
+            running = 0;
+            break;
         }
     }
 
     printf("Exiting... Total frames rendered: %lu\n", frameCount);
+    kprintf("DEMO: Exiting... Total frames rendered: %lu\n", frameCount);
 
     /* 7. Cleanup and shutdown */
     glDeleteTextures(1, &texID);
     mglDeleteContext();
-    CloseWindow(win);
+    if (win) {
+        if (win->UserPort) {
+            struct Message *msg;
+            Forbid();
+            while ((msg = GetMsg(win->UserPort))) {
+                ReplyMsg(msg);
+            }
+            win->UserPort = NULL;
+            ModifyIDCMP(win, 0);
+            Permit();
+        }
+        CloseWindow(win);
+    }
     MGLTerm();
 
     printf("Demo finished cleanly.\n");
+    kprintf("DEMO: Finished cleanly.\n");
     return 0;
 }

@@ -69,4 +69,43 @@ void glShaderStateAttributeRecord(V3DContext* context, APTR address, UBYTE raiu,
                                   UWORD divisor, ULONG stride, ULONG maxindex);
 void SetInstanceid(V3DContext* context, ULONG instanceid);
 
+#ifndef D_SR_COMBINED
+#define D_SR_COMBINED         0x001UL
+#define D_SR_SMOOTH_ALPHATEST 0x002UL
+#define D_SR_SMOOTH           0x004UL
+#define D_SR_MULTITEXTURED    0x008UL
+#define D_SR_TEXTURED         0x010UL
+#define D_SR_ALPHATEST        0x020UL
+#define D_SR_SMOOTH_POINT     0x040UL
+#define D_SR_MULTITEX_BLEND   0x080UL
+#define D_SR_NEEDS_REAL_W     0x100UL
+#endif
+
+typedef struct {
+    ULONG staterecordAddress;
+    ULONG attr_count;
+    void* idxbuf;
+    ULONG idxbytes;
+    int   nidx;
+    UBYTE primType;
+    int   count;
+    int   chunk_size;
+    /* VC4 specific arguments */
+    const float* matrix;       /* Pointer to 16 floats of CombinedMatrix */
+    float vp_ax, vp_ay;        /* Viewport center */
+    float vp_sx, vp_sy;        /* Viewport half-size */
+    float vp_sz, vp_az;        /* Depth scale & offset */
+    const float* posbuf;       /* Packed position buffer */
+    int   pos_stride_floats;   /* 3 or 4 */
+    const float* texbuf;       /* Packed attr1 buffer */
+    const float* texbuf2;      /* Packed attr2 buffer */
+    ULONG fshader_code_addr;   /* Fragment shader code bus address */
+    ULONG unif_frag_addr;      /* Fragment shader uniforms bus address */
+    ULONG shape;               /* D_SR_* flags */
+    BOOL  use_clip_space;
+    ULONG flat_color;          /* Fixed color if untextured & flat */
+} v3d_primitive_args;
+
+void v3d_emit_primitive(V3DDevice* device, V3DContext* context, const v3d_primitive_args* args);
+
 #endif /* VC4_COMMANDS_H */

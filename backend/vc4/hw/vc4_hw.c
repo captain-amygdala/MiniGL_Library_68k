@@ -11,32 +11,32 @@ static v3d_u8 s_scratch_buffer[512];
 
 void v3d_invalidate_caches(void)
 {
-    /* On VC4: L2 cache clear bit 2, Slices cache clear 0x0f */
+    /* On VC4: L2 cache clear bit 2, Slices cache clear 0x0f0f0f0f */
     V3D_L2CACTL = LE32(1 << 2);
-    V3D_SLCACTL = LE32(0x0f);
+    V3D_SLCACTL = LE32(0x0f0f0f0f);
 }
 
 v3d_u8 v3d_get_binning_flush_count(void)
 {
-    return (v3d_u8)(LE32(V3D_BFC) & V3D_BFC_FLUSH_COUNT_MASK);
+    uint32_t raw = V3D_BFC;
+    return (v3d_u8)((raw & 0xFF) | ((raw >> 24) & 0xFF));
 }
 
 v3d_u8 v3d_get_render_frame_count(void)
 {
-    return (v3d_u8)(LE32(V3D_RFC) & V3D_RFC_FRAME_COUNT_MASK);
+    uint32_t raw = V3D_RFC;
+    return (v3d_u8)((raw & 0xFF) | ((raw >> 24) & 0xFF));
 }
 
 v3d_wait_result v3d_wait_for_binning_flush(v3d_u8 lastFlush)
 {
     v3d_u8 currentFlushCount;
-    v3d_u32 status;
 
     currentFlushCount = v3d_get_binning_flush_count();
-    while (currentFlushCount <= lastFlush && !(currentFlushCount == 0 && lastFlush == 255))
+    while (currentFlushCount == lastFlush)
     {
         currentFlushCount = v3d_get_binning_flush_count();
-        status = V3D_CT0CS;
-        if (status & V3D_CTNCS_CTERR)
+        if (LE32(V3D_CT0CS) & 0x08)
             return v3d_wait_result_error_detected;
     }
     return v3d_wait_result_success;
@@ -45,14 +45,12 @@ v3d_wait_result v3d_wait_for_binning_flush(v3d_u8 lastFlush)
 v3d_wait_result v3d_wait_for_render_frame(v3d_u8 lastFrame)
 {
     v3d_u8 currentFrameCount;
-    v3d_u32 status;
 
     currentFrameCount = v3d_get_render_frame_count();
-    while (currentFrameCount <= lastFrame && !(currentFrameCount == 0 && lastFrame == 255))
+    while (currentFrameCount == lastFrame)
     {
         currentFrameCount = v3d_get_render_frame_count();
-        status = V3D_CT1CS;
-        if (status & V3D_CTNCS_CTERR)
+        if (LE32(V3D_CT1CS) & 0x08)
             return v3d_wait_result_error_detected;
     }
     return v3d_wait_result_success;
@@ -64,17 +62,22 @@ void v3d_start_binning_commands(v3d_address binningCommandListStart,
                                 v3d_u32 tileAllocationSize,
                                 v3d_address tileStateData)
 {
+    (void)tileAllocation;
+    (void)tileAllocationSize;
+    (void)tileStateData;
     V3D_BPOS = 0;
 
-    if (tileAllocation)
+    /* Ensure thread 0 is stopped and reset (Broadcom Table 49: CTRSTA) */
+    if (LE32(V3D_CT0CS) & (0x20 | 0x10 | 0x08))
     {
-        V3D_BPCA = LE32(tileAllocation);
-        V3D_BPCS = LE32(tileAllocationSize);
+        V3D_CT0CS = LE32(0x8000);
+        int spin = 10000;
+        while ((LE32(V3D_CT0CS) & 0x20) && --spin > 0) {}
     }
-    if (tileStateData)
-    {
-        V3D_BPOA = LE32(tileStateData);
-    }
+    V3D_CTL_INT_CLR = LE32(0xFFFFFFFF);
+
+    D(("v3d_start_binning_commands: CT0CA=0x%08lx CT0EA=0x%08lx\n",
+        (ULONG)binningCommandListStart, (ULONG)binningCommandListEnd));
 
     V3D_CT0CA = LE32(binningCommandListStart);
     V3D_CT0EA = LE32(binningCommandListEnd);
@@ -87,6 +90,19 @@ void v3d_start_binning_commands(v3d_address binningCommandListStart,
 
 void v3d_start_render_commands(v3d_address renderCommandListStart, v3d_address renderCommandListEnd)
 {
+    /* Ensure thread 1 is stopped and reset (Broadcom Table 49: CTRSTA) */
+    if (LE32(V3D_CT1CS) & (0x20 | 0x10 | 0x08))
+    {
+        V3D_CT1CS = LE32(0x8000);
+        int spin = 10000;
+        while ((LE32(V3D_CT1CS) & 0x20) && --spin > 0) {}
+    }
+    V3D_CTL_INT_CLR = LE32(0xFFFFFFFF);
+
+    D(("v3d_start_render_commands: CT1CA=0x%08lx CT1EA=0x%08lx len=%lu\n",
+        (ULONG)renderCommandListStart, (ULONG)renderCommandListEnd,
+        (ULONG)(renderCommandListEnd - renderCommandListStart)));
+
     V3D_CT1CA = LE32(renderCommandListStart);
     V3D_CT1EA = LE32(renderCommandListEnd);
 

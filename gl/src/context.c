@@ -700,6 +700,12 @@ static void vid_CloseWindow(GLcontext context)
 {
 	D(("vid_CloseWindow: entry, bitmapLock=%lx\n", (ULONG)context->bitmapLock));
 
+	/* Flush any pending render BEFORE tearing down the context -- otherwise
+	 * the GPU could still be reading CL buffers or writing to the bitmap
+	 * when we free them below. Also releases the screen lock if held. */
+	MGLFlushPendingRender(context);
+	D(("vid_CloseWindow: after MGLFlushPendingRender\n"));
+
 	if (context->bitmapLock)
 	{
 		UnLockBitMap(context->bitmapLock);
@@ -707,14 +713,11 @@ static void vid_CloseWindow(GLcontext context)
 	}
 	D(("vid_CloseWindow: after bitmapLock unlock\n"));
 
-
 	tex_FreeTextures(context);
 	D(("vid_CloseWindow: after tex_FreeTextures\n"));
 
-
 	v3d_context_free(&context->device, &context->backend);
 	D(("vid_CloseWindow: after v3d_context_free\n"));
-
 
 	/* Both guarded on ExternalWindow: with MGLCreateContextFromWindow the
 	 * window is the application's and its screen was never locked by us.
@@ -724,24 +727,39 @@ static void vid_CloseWindow(GLcontext context)
 	if (context->v3dWindow && !context->ExternalWindow)   CloseWindow(context->v3dWindow);
 	D(("vid_CloseWindow: after CloseWindow (external=%ld)\n", (LONG)context->ExternalWindow));
 
-
 	if (context->v3dScreen && !context->ExternalWindow)   UnlockPubScreen(NULL, context->v3dScreen);
 	D(("vid_CloseWindow: after UnlockPubScreen\n"));
+
+	/* Ensure any asynchronous blits from MGLSwitchDisplay ClipBlit are complete */
+	WaitBlit();
+	D(("vid_CloseWindow: after WaitBlit\n"));
+
+	/* Disconnect and free RastPort BEFORE freeing the BitMap it references */
+	if (context->v3dRastPort)
+	{
+		context->v3dRastPort->BitMap = NULL;
+		free(context->v3dRastPort);
+		context->v3dRastPort = NULL;
+	}
+	D(("vid_CloseWindow: after free(v3dRastPort)\n"));
 
 	/* Guarded on ExternalBitMap: with MGLCreateContextFromBitMap
 	 * the render target is the APPLICATION's bitmap, not one we allocated.
 	 * Note this is a different split from ExternalWindow above -- an adopted
 	 * WINDOW still uses an offscreen bitmap that IS ours and must be freed. */
-	if (context->v3dBitMap && !context->ExternalBitMap)   FreeBitMap(context->v3dBitMap);
+	if (context->v3dBitMap && !context->ExternalBitMap)
+	{
+		D(("vid_CloseWindow: calling FreeBitMap(%lx)\n", (ULONG)context->v3dBitMap));
+		FreeBitMap(context->v3dBitMap);
+		context->v3dBitMap = NULL;
+	}
 	D(("vid_CloseWindow: after FreeBitMap\n"));
-
-	if (context->v3dRastPort) free(context->v3dRastPort);
-	D(("vid_CloseWindow: after free(v3dRastPort)\n"));
 
 	context->v3dWindow = NULL;
 	context->v3dScreen = NULL;
 	context->v3dBitMap = NULL;
 	context->v3dRastPort = NULL;
+	context->bitmapSrcX = 0;
 	context->inputWindow = NULL;
 	D(("vid_CloseWindow: exit\n"));
 }
@@ -778,8 +796,10 @@ static GLboolean vid_OpenWindow(GLcontext context, int w, int h)
 	if (!context->v3dWindow) goto Duh;
 
 	/* 32-bit, not the original's 8-bit -- V3D writes RGBA8 directly with
-	 * no format-conversion step (see this file's header comment). */
-	context->v3dBitMap = AllocBitMap((ULONG)w, (ULONG)h, 32, BMF_MINPLANES|BMF_DISPLAYABLE,
+	 * no format-conversion step (see this file's header comment).
+	 * Height is rounded up to 64 to ensure full tile rows can be stored without buffer overrun.
+	 * Width is padded by 16 pixels to allow 16-byte alignment of the framebuffer base address. */
+	context->v3dBitMap = AllocBitMap((ULONG)(w + 16), (ULONG)((h + 63) & ~63), 32, BMF_MINPLANES|BMF_DISPLAYABLE,
 		context->v3dWindow->RPort->BitMap);
 	if (!context->v3dBitMap) goto Duh;
 
@@ -811,6 +831,13 @@ static GLboolean vid_OpenWindow(GLcontext context, int w, int h)
 			TAG_DONE);
 		if (!probe) goto Duh;
 		UnLockBitMap(probe);
+		{
+			ULONG unaligned = context->vmembase;
+			ULONG align_off = (16 - (unaligned & 15)) & 15;
+			context->vmembase = unaligned + align_off;
+			context->bitmapSrcX = (WORD)(align_off / 4);
+			context->backend.fb_stride = context->bprow;
+		}
 	}
 
 	GLScissor(context, 0, 0, w, h);
@@ -857,7 +884,9 @@ static GLboolean vid_AdoptWindow(GLcontext context, struct Window *window, int w
 	context->v3dWindow = window;
 	context->v3dScreen = window->WScreen;
 
-	context->v3dBitMap = AllocBitMap((ULONG)w, (ULONG)h, 32, BMF_MINPLANES|BMF_DISPLAYABLE,
+	/* Height is rounded up to 64 to ensure full tile rows can be stored without buffer overrun.
+	 * Width is padded by 16 pixels to allow 16-byte alignment of the framebuffer base address. */
+	context->v3dBitMap = AllocBitMap((ULONG)(w + 16), (ULONG)((h + 63) & ~63), 32, BMF_MINPLANES|BMF_DISPLAYABLE,
 		window->RPort->BitMap);
 	if (!context->v3dBitMap) goto Duh;
 
@@ -883,6 +912,13 @@ static GLboolean vid_AdoptWindow(GLcontext context, struct Window *window, int w
 			TAG_DONE);
 		if (!probe) goto Duh;
 		UnLockBitMap(probe);
+		{
+			ULONG unaligned = context->vmembase;
+			ULONG align_off = (16 - (unaligned & 15)) & 15;
+			context->vmembase = unaligned + align_off;
+			context->bitmapSrcX = (WORD)(align_off / 4);
+			context->backend.fb_stride = context->bprow;
+		}
 	}
 
 	GLScissor(context, 0, 0, w, h);
@@ -1683,6 +1719,20 @@ static v3d_wait_result gl_FramePresent(GLcontext context)
 				g_mglv3d_frames_dropped++;
 				return v3d_wait_result_error_detected;
 			}
+		}
+		else
+		{
+			if (context->v3dBitMap)
+			{
+				ULONG unaligned = context->vmembase;
+				ULONG align_off = (16 - (unaligned & 15)) & 15;
+				context->vmembase = unaligned + align_off;
+				context->bitmapSrcX = (WORD)(align_off / 4);
+			}
+			backend->framebuffer = (void*)context->vmembase;
+			backend->fb_stride = context->bprow;
+			D(("gl_FramePresent: LockBitMapTags OK, vmembase=0x%08lx (srcX=%ld) bprow=%lu fb=%08lx\n",
+				context->vmembase, (LONG)context->bitmapSrcX, context->bprow, (ULONG)backend->framebuffer));
 		}
 	}
 
@@ -2619,7 +2669,7 @@ void MGLSwitchDisplay(GLcontext context)
 
 	/* Windowed mode: unchanged from the original -- real AmigaOS/CGX
 	 * ClipBlit, no Warp3D coupling. */
-	ClipBlit(context->v3dRastPort,0,0,
+	ClipBlit(context->v3dRastPort, context->bitmapSrcX, 0,
 		context->v3dWindow->RPort, context->v3dWindow->BorderLeft,
 		context->v3dWindow->BorderTop,
 		context->v3dWindow->Width-context->v3dWindow->BorderLeft-context->v3dWindow->BorderRight,

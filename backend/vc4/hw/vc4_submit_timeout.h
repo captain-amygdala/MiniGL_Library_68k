@@ -11,7 +11,7 @@
 #include "vc4_hw.h"
 
 #define V3D_TIMEOUT_ITERATIONS_BINNING 2000000UL
-#define V3D_TIMEOUT_ITERATIONS_RENDER  5000000UL
+#define V3D_TIMEOUT_ITERATIONS_RENDER  2000000UL
 
 extern v3d_u32 g_v3d_render_timeout_iterations;
 

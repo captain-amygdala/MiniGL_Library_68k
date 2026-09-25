@@ -42,7 +42,7 @@ void v3d_frame_compute_pool_sizes(v3d_u16 width, v3d_u16 height,
     size = (*tilesX) * (*tilesY) * 64;
     size = V3D_ALIGN_UP(size, 4096);
     size += 8192;
-    size += 512 * 1024;
+    size += 4 * 1024 * 1024;
     *tile_alloc_size = size;
 }
 

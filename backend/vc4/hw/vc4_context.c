@@ -50,10 +50,13 @@ int v3d_context_init(V3DContext* context, V3DDevice* device, v3d_u16 width, v3d_
     context->width = width;
     context->height = height;
     context->y_offset = 0;
+    context->render_mode_cfg_pending = 0;
+    context->clear_colors_emitted = 0;
 
-    g_v3d_render_timeout_iterations = ((v3d_u32)width * (v3d_u32)height) >> 2;
+    g_v3d_render_timeout_iterations = V3D_TIMEOUT_ITERATIONS_RENDER;
 
-    D(("vc4_context_init: enter, width=%ld height=%ld\n", (LONG)width, (LONG)height));
+    D(("vc4_context_init: enter, width=%ld height=%ld timeout_iter=%lu\n",
+        (LONG)width, (LONG)height, (ULONG)g_v3d_render_timeout_iterations));
 
     context->zbuffer_bits = (g_v3d_requested_zbuffer_bits == 16) ? 16 : 32;
 
@@ -223,6 +226,7 @@ int v3d_context_init(V3DContext* context, V3DDevice* device, v3d_u16 width, v3d_
 
     memset(&context->shader_code_mem, 0, sizeof(context->shader_code_mem));
     context->shaders_ready = 0;
+    context->tile_alloc_stride = 32;
 
     return 0;
 }

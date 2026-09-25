@@ -433,6 +433,48 @@ typedef struct PACKED v3d_occlusion_query_counter
     v3d_u32 address;
 } v3d_occlusion_query_counter;
 
+/* Broadcom VC4 AG100-R Table 46: NV Shader State Record (opcode 65) */
+typedef struct PACKED {
+    v3d_u8  flag_bits;           /* bit 0 = single-threaded fragment shader (1) */
+    v3d_u8  vertex_stride_bytes; /* 32 bytes (8 words) */
+    v3d_u8  uniform_num;         /* 0 */
+    v3d_u8  varying_num;         /* 5 */
+    v3d_u32 fshader_code_addr;   /* Fragment shader code bus address (LE32) */
+    v3d_u32 fshader_uniform_addr;/* Fragment shader uniforms bus address (LE32) */
+    v3d_u32 vertex_data_addr;    /* Shaded vertex data bus address (LE32) */
+} VC4NVShaderRecord;
+
+/* Broadcom VC4 AG100-R Figure 12: Shaded Vertex Memory Format (8 words, 32 bytes) */
+typedef struct PACKED {
+    v3d_u16 xs;    /* 12.4 fixed point (LE16) */
+    v3d_u16 ys;    /* 12.4 fixed point (LE16) */
+    float   zs;    /* Depth in [0.0, 1.0] (LE32 float) */
+    float   inv_w; /* 1/W (LE32 float) */
+    float   v0;    /* Varying 0: T (V texcoord) (LE32 float) */
+    float   v1;    /* Varying 1: S (U texcoord) (LE32 float) */
+    float   v2;    /* Varying 2: R (Red 0..1) (LE32 float) */
+    float   v3;    /* Varying 3: G (Green 0..1) (LE32 float) */
+    float   v4;    /* Varying 4: B (Blue 0..1) (LE32 float) */
+} VC4NVShadedVertex;
+
+/* Broadcom VC4 AG100-R Figure 12: Shaded Vertex Memory Format Form 2 (12 words, 48 bytes)
+ * With Clip header, No Point Size: (7 + NVARY) words */
+typedef struct PACKED {
+    float   xc;    /* Clip coordinate X (LE32 float) */
+    float   yc;    /* Clip coordinate Y (LE32 float) */
+    float   zc;    /* Clip coordinate Z (LE32 float) */
+    float   wc;    /* Clip coordinate W (LE32 float) */
+    v3d_u16 xs;    /* 12.4 fixed point, in pixels, relative to viewport centre (LE16) */
+    v3d_u16 ys;    /* 12.4 fixed point, in pixels, relative to viewport centre (LE16) */
+    float   zs;    /* Depth in [0.0, 1.0] (LE32 float) */
+    float   inv_w; /* 1/Wc (LE32 float) */
+    float   v0;    /* Varying 0: T (V texcoord) (LE32 float) */
+    float   v1;    /* Varying 1: S (U texcoord) (LE32 float) */
+    float   v2;    /* Varying 2: R (Red 0..1) (LE32 float) */
+    float   v3;    /* Varying 3: G (Green 0..1) (LE32 float) */
+    float   v4;    /* Varying 4: B (Blue 0..1) (LE32 float) */
+} VC4NVShadedVertexClip;
+
 /* Exact 36-byte Shader Record matching gl/src/draw.c compile-time checks */
 typedef struct PACKED v3d_gl_shader_state_record
 {

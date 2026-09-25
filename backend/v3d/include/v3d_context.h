@@ -401,6 +401,7 @@ struct V3DContext {
     v3d_mem shader_code_mem;
     v3d_u8  shaders_ready;
     v3d_mem mock_fb_mem;
+    v3d_u32 fb_stride;
 };
 
 /*

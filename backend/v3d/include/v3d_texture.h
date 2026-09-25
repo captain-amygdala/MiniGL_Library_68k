@@ -354,5 +354,8 @@ void v3d_texture_convert_row(v3d_u32* dst, const v3d_u8* src, v3d_u32 count, v3d
  */
 void v3d_texture_emit_state(V3DDevice* device, V3DContext* context, V3DTexture* tex,
                              ULONG* outTextureShaderStateAddress, ULONG* outTextureSamplerStateAddress);
+void v3d_emit_tmu_uniform_pair(V3DDevice* device, V3DContext* context,
+                               v3d_mem* sm, v3d_static_buffer* sb,
+                               ULONG ts_addr, ULONG ss_addr);
 
 #endif /* V3D_TEXTURE_H */

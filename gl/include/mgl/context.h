@@ -467,6 +467,7 @@ struct GLcontext_t
 	APTR                    bitmapLock;   /* handle from LockBitMapTags */
 	ULONG                   vmembase;     /* direct framebuffer address, from bitmapLock */
 	ULONG                   bprow;        /* bytes per row, from bitmapLock */
+	WORD                    bitmapSrcX;   /* X pixel offset in v3dBitMap to 16-byte aligned vmembase */
 
 	GLboolean               v3dLocked;
 
